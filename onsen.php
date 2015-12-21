@@ -1,8 +1,10 @@
 <?php
 
+$errormsg = "";
 
 function file_get_html_with_retry($url, $retrytimes = 5, $timeoutsec = 1){
 
+    global $errormsg;
     $errno = 0;
 
     for($loopcount = 0 ; $loopcount < $retrytimes ; $loopcount ++){
@@ -20,6 +22,7 @@ function file_get_html_with_retry($url, $retrytimes = 5, $timeoutsec = 1){
             break;
         }
         $errno = curl_errno($ch);
+        $errormsg = curl_error($ch);
         print $timeoutsec;
         curl_close($ch);
     }
@@ -34,14 +37,18 @@ function file_get_html_with_retry($url, $retrytimes = 5, $timeoutsec = 1){
 
 function analyze_radiomedia($id)
 {
+  global $errormsg;
+
   $url = 'http://www.onsen.ag/data/api/getMovieInfo/'.$id.'?callback=callback';
   // print $url."\n";
   $json = file_get_html_with_retry($url);
+  if($json === false ) return $json;
   // print $json."\n";
   preg_match('/callback\((.+)\)/',$json,$json_matchs);
   // var_dump($json_matchs);
   $radioinfo=json_decode($json_matchs[1],$assoc = true);
   // var_dump($radioinfo);
+  if(is_null($radioinfo)) return false;
   return $radioinfo;
 }
 
@@ -84,6 +91,7 @@ function build_filename($radioinfo,$id = 'none'){
 
 function downloadfiles($url,$filename)
 {
+global $errormsg;
 $fp = fopen($filename, "w");
 if($fp == false){
   print("file open failed :$filename");
@@ -96,9 +104,10 @@ curl_setopt($ch, CURLOPT_HEADER, 0);
 
 $ret = curl_exec($ch);
 if($ret == true){
-    print "Success download : $filename\n";
+    logwrite ("Success download : $filename url : $url");
 }else {
-    print "Download failed : $filename\n";
+    logwrite ("Download failed  : $filename url : $url".curl_error($ch));
+    $errormsg = curl_error($ch);
 }
 
 curl_close($ch);
@@ -106,14 +115,81 @@ fclose($fp);
 
 }
 
+function read_idlist($idfile){
+    $idlist = array();
+    
+    $idlistfd = fopen($idfile, "r");
+    while( ($oneid = fgets($idlistfd,128)) !== false ){
+        if($oneid[0] == '#') continue;
+        $oneid = trim($oneid);
+        if(strlen($oneid) > 0 )
+            $idlist[] = trim($oneid);
+    }
+    fclose($idlistfd);
+    
+    return $idlist;
 
-// test radio_alcot
+}
 
-$radioinfo = analyze_radiomedia('radio_alcot');
-$finename = build_filename($radioinfo,'radio_alcot');
-print $finename;
+function logwrite($msg){
 
-downloadfiles($radioinfo['moviePath']['pc'],$finename);
+    $logfd = fopen('/tmp/onsendl.log', "a");
+    $logmsg = date(DATE_ATOM)." $msg\n";
+    fwrite($logfd, $logmsg);
+    fclose($logfd);
+}
 
+logwrite("Start Onsen Download");
+
+// start main
+$idfile = false;
+$destdir = false;
+$idlist = array();
+
+$options = getopt("f:d:");
+if( $options === false) {
+}else {
+    if(array_key_exists("f", $options)) {
+        $idfile = $options['f'];
+        $idlist = read_idlist($idfile);
+    }
+    if(array_key_exists("d", $options)) {
+        $destdir = $options['d'];
+        $lastdirchar = substr($destdir,-1,1);
+        if( $lastdirchar[0] == '/' ){
+            $destdir = $destdir;
+        } else {
+            $destdir = $destdir.'/';
+        }
+    }
+}
+
+// var_dump ($idlist);
+// print "\n";
+
+$countor = 0;
+
+foreach ($idlist as $id){
+  $radioinfo = analyze_radiomedia($id);
+  if($radioinfo === false){
+    logwrite ("Analyze_radiomedia failed  : ".curl_error($ch));
+    continue;
+  }
+  $finename = build_filename($radioinfo,$id);
+  if($destdir) {
+    $finename = $destdir.$finename;
+  }
+  if( file_exists($finename) ){
+    if ( filesize ($finename) < 1024 ) {
+      print "$finename is exists. but too small. Overwrite.  filesize : ".filesize ($finename)."\n";
+    }else {
+      print "$finename is exists. skip this file. filesize : ".filesize ($finename)."\n";
+      continue;
+    }
+  }
+  downloadfiles($radioinfo['moviePath']['pc'],$finename);
+  $countor ++;
+}
 
 ?>
+
