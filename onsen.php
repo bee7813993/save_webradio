@@ -42,13 +42,32 @@ function analyze_radiomedia($id)
   $url = 'http://www.onsen.ag/data/api/getMovieInfo/'.$id.'?callback=callback';
   // print $url."\n";
   $json = file_get_html_with_retry($url);
-  if($json === false ) return $json;
+  if($json === false ) {
+        print "Onsen Meta data Download Failed \n";
+	print "id : $id \n";
+	print "url $url \n";
+	print  $json." \n";
+	return $json;
+  }
   // print $json."\n";
   preg_match('/callback\((.+)\)/',$json,$json_matchs);
   // var_dump($json_matchs);
   $radioinfo=json_decode($json_matchs[1],$assoc = true);
   // var_dump($radioinfo);
-  if(is_null($radioinfo)) return false;
+  if(is_null($radioinfo)){
+	print "Onsen Meta data Json Decode Failed \n";
+	print "id : $id \n";
+	print "url $url \n";
+	print  $json." \n";
+	return false;
+  }
+  if(!array_key_exists('moviePath',$radioinfo)){
+	print "Onsen Meta data has no moviePath \n";
+	print "id : $id \n";
+	print "url $url \n";
+	print  $json." \n";
+
+  }
   return $radioinfo;
 }
 
@@ -171,8 +190,10 @@ $countor = 0;
 
 foreach ($idlist as $id){
   $radioinfo = analyze_radiomedia($id);
+  print "start id : $id\n";
+  logwrite( "start id : $id");
   if($radioinfo === false){
-    logwrite ("Analyze_radiomedia failed  : ".curl_error($ch));
+    logwrite ("Analyze_radiomedia failed id : $id error : ".curl_error($ch));
     continue;
   }
   $finename = build_filename($radioinfo,$id);
