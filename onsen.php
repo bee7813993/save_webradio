@@ -71,14 +71,28 @@ function analyze_radiomedia($id)
   return $radioinfo;
 }
 
+function makedatestring($ymd ){
+
+  $retval = null;
+  
+  $array_date = explode('.', $ymd);
+  if( $array_date != false ) {
+      $retval = sprintf("%04d.%02d.%02d", $array_date[0],$array_date[1],$array_date[2]);
+  }
+  
+  return $retval;
+
+}
+
 function build_filename($radioinfo,$id = 'none'){
 
   $path_parts = pathinfo($radioinfo['moviePath']['pc']);
   
 
   $name = "";
-  if(!empty($radioinfo['update'])){
-     $name = $name.$radioinfo['update'].'放送'.'_';
+  $date_string = makedatestring($radioinfo['update']);
+  if(!empty($date_string)){
+     $name = $name.$date_string.'放送'.'_';
   }
   
   if(!empty($radioinfo['title'])){
@@ -103,6 +117,8 @@ function build_filename($radioinfo,$id = 'none'){
     $name = $name.'.'.$path_parts['extension'];
   }
   $name = mb_ereg_replace('\/','／',$name);
+  $name = mb_ereg_replace('\*','＊',$name);
+  $name = mb_ereg_replace('\!','！',$name);
   return $name;
 
   
