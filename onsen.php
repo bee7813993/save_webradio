@@ -127,9 +127,12 @@ function build_filename($radioinfo,$id = 'none'){
 function downloadfiles($url,$filename)
 {
 global $errormsg;
-$fp = fopen($filename, "w");
+$workfilename = "workfile";
+$errflg = 0;
+
+$fp = fopen($workfilename, "w");
 if($fp == false){
-  print("file open failed :$filename");
+  print("file open failed :$workfilename");
   return false;
 }
 
@@ -143,10 +146,23 @@ if($ret == true){
 }else {
     logwrite ("Download failed  : $filename url : $url".curl_error($ch));
     $errormsg = curl_error($ch);
+    $errflg++;
 }
 
 curl_close($ch);
 fclose($fp);
+
+if($errflg > 0){
+    unlink($workfilename);
+    return false;
+}
+
+if(filesize($workfilename) > 1024 ){
+    copy($workfilename,$filename);
+}else {
+    logwrite ("filesize is too small  : $filename size : ".filesize($workfilename));
+}
+unlink($workfilename);
 
 }
 
@@ -199,8 +215,8 @@ if( $options === false) {
     }
 }
 
-// var_dump ($idlist);
-// print "\n";
+#var_dump ($idlist);
+#print "\n";
 
 $countor = 0;
 
