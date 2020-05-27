@@ -1,6 +1,187 @@
 <?php
 
+$tokenfile="onsen_token.conf";
+$token="Authorization: Bearer 2073d5d49e40dbe93cde09949ade421bae3daa01bdd88b4a3afbbba58389a1f7";
+$programurl='https://app.onsen.ag/api/me/programs/';
+
+if ( file_exists($tokenfile) ) {
+    $ret = file_get_contents($tokenfile);
+    $token = "Authorization: ".$ret;
+}
+//echo $token;
 $errormsg = "";
+$id=166;
+
+$options = getopt("i:");
+if(array_key_exists('i',$options) ){
+	$id=$options["i"];
+}
+//print $id;
+//var_dump($options);
+//die();
+
+function file_get_html_with_retry_json($url, $retrytimes = 5, $timeoutsec = 1){
+
+    global $errormsg;
+    global $token;
+    $errno = 0;
+    
+    if(empty($token)) {
+    $headers = array('X-Device-Os: ios', 'Accept-Version: v3', 'Accept: */*', 'X-Device-Name: ', 'Accept-Language: ja-JP;q=1.0, en-JP;q=0.9', 'Content-Type: application/json', 'X-App-Version: 25');
+    }else{
+    $headers = array('X-Device-Os: ios', 'Accept-Version: v3', $token , 'Accept: */*', 'X-Device-Name: ', 'Accept-Language: ja-JP;q=1.0, en-JP;q=0.9', 'Content-Type: application/json', 'X-App-Version: 25');
+    }
+
+    for($loopcount = 0 ; $loopcount < $retrytimes ; $loopcount ++){
+        
+        $ch=curl_init($url);
+        curl_setopt($ch, CURLOPT_HEADER, false);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_USERAGENT, "User-Agent: iOS/Onsen/2.6.1");
+        curl_setopt($ch, CURLOPT_HTTPHEADER , $headers);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, $timeoutsec);
+        curl_setopt($ch, CURLOPT_TIMEOUT, $timeoutsec);
+        curl_setopt($ch, CURLOPT_FAILONERROR, true);
+        $contents = curl_exec($ch);
+        //var_dump($contents); //debug
+        if( $contents !== false) {
+            curl_close($ch);
+            break;
+        }
+        $errno = curl_errno($ch);
+        $errormsg = curl_error($ch);
+        print $timeoutsec;
+        curl_close($ch);
+    }
+    if ($loopcount === $retrytimes) {
+        $error_message = curl_strerror($errno);
+        print 'http connection error : '.$error_message . ' url : ' . $url . "\n";
+    }
+    return $contents;
+
+}
+
+function get_programinfo_json($id){
+	global $programurl;
+	if(empty($id)){
+		return false;
+	}
+	$url=$programurl.$id;
+	
+	$html =file_get_html_with_retry_json($url);
+	if($html === false){
+	  print("Onsen Program JSON download Failed.\n");
+	  die();
+	}
+	$program_array=json_decode($html,true);
+	if($html === false){
+	   print("Parse Onsen Program JSON download Failed.\n");
+	   print $html;
+	}
+	//var_dump($program_array);	
+    return $program_array;
+}
+
+
+function build_filename_json($updateday,$title,$episode_title,$mc,$media_type,$id = 'none'){
+
+  $name = "";
+  if(!empty($updateday)){
+     $name = $name.$updateday.'放送'.'_';
+  }
+  
+  if($title){
+     $name = $name.$title;
+  }else{
+     $name = $name.$id;
+  }
+
+  if(!empty($episode_title)){
+     $name = $name.'_'.'第'.$episode_title.'回';
+  }
+  $name_bak = $name;
+  
+  if(!empty($mc)){
+     $name = $name.'_'.'［'.$mc;
+     $name = $name.'］';
+  }
+  if( strlen($name) > 250 ) {
+     $name = $name_bak;
+  }
+  if($media_type="sound"){
+    $name = $name.'.m4a';
+  }else {
+    $name = $name.'.mp4';
+  }
+  $name = mb_ereg_replace('\/','／',$name);
+  $name = mb_ereg_replace('\*','＊',$name);
+  $name = mb_ereg_replace('\!','！',$name);
+  return $name;
+}
+
+function download_onsen_m3u8($url, $outfile){
+    $cmd="ffmpeg";
+    
+    if(empty($url)){
+       echo "URL is empty\n";
+       return -1;
+    }
+    if(empty($outfile)){
+       echo "outfilename is empty\n";
+       return -1;
+    }
+    
+    if(file_exists( $outfile )){
+        if ( filesize ($finename) < 1024 ) {
+            print "$finename is exists. but too small. Overwrite.  filesize : ".filesize ($finename)."\n";
+            unlink ($finename);
+        }else{
+            echo "File: ".$outfile." is already exists\n";
+           return -1;
+        }
+    }
+
+
+    $execcmd=$cmd." -i ".$url."  -strict -2 '".$outfile."'";
+    echo $execcmd;
+    exec($execcmd);
+}
+
+$programinfo=get_programinfo_json($id);
+$title = $programinfo["title"];
+$program_mc="";
+    foreach($programinfo["performer_list"] as $performer ){
+          if(!empty($program_mc) ) $program_mc = $program_mc." ";
+          $program_mc = $program_mc.$performer;
+    }
+    
+foreach( $programinfo["episodes"] as $episode){
+	$updateday= date('Y.m.d', strtotime($episode["updated_on"]));
+	$episode_title=$episode["title"];
+    $media_type=$episode["media_type"];
+	$mc=$program_mc;
+    foreach($episode["episode_performers"] as $performer ){
+          if(!empty($mc) ) $mc = $mc." ";
+          $mc = $mc.$performer["name"];
+    }
+    $mediaurl="";
+    foreach($episode["episode_files"] as $episode_file ){
+    	if($episode_file["media_url"] == "ios" ){
+          $mediaurl = $episode_file["media_url"];
+        }
+        if(empty($mediaurl)) {
+          $mediaurl = $episode_file["media_url"];
+        }
+    }
+    $outfilename = build_filename_json($updateday,$title,$episode_title,$mc,$media_type,$programinfo["directory_name"]);
+    print $outfilename."\n";
+    print $mediaurl."\n";
+    download_onsen_m3u8($mediaurl,$outfilename);
+	
+}
+
+die();
+
 
 function file_get_html_with_retry($url, $retrytimes = 5, $timeoutsec = 1){
 

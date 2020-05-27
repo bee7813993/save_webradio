@@ -48,17 +48,32 @@ libxml_use_internal_errors(true);
 $domDocument->loadHTML($html);
 libxml_clear_errors();
 $xmlString = $domDocument->saveXML();
+
+#$xmlString = preg_replace('/^.*denkifes2019.*$/um','',$xmlString);
+print($xmlString);
 $xmlObject = simplexml_load_string($xmlString);
+var_dump(libxml_get_errors());
+#var_dump($xmlObject);
 $array = json_decode(json_encode($xmlObject), true);
+#var_dump($array);
+if(empty($array) ) {
+    print $xmlObject."\n";
+    die();
+}
 $programarray=$array['body']['div']['div'][0]['div']['div'][0]['div']['div']["section"][1]["div"][1]["ul"]["li"];
 #var_dump($programarray);
+#die();
 
 foreach($programarray as $program){
+# var_dump($program);
    $id = $program["@attributes"]["id"];
    $title = $program["h4"]["span"];
    $update = $program["@attributes"]["data-update"];
    $mc = $program["p"][1]["span"];
-   $idinfo = sprintf("%-16s %10s %s $mc\n",$id,$update,$title,$mc);
+   if(empty($mc)){
+       $mc="";
+   }
+   $idinfo = sprintf("%-16s %10s %s %s\n",$id,$update,$title,$mc);
    print $idinfo;
 }
 
