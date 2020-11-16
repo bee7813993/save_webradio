@@ -97,7 +97,7 @@ function build_filename_json($updateday,$title,$episode_title,$mc,$media_type,$i
   }
 
   if(!empty($episode_title)){
-     $name = $name.'_'.'第'.$episode_title.'回';
+     $name = $name.'_'.''.$episode_title.'';
   }
   $name_bak = $name;
   
@@ -116,6 +116,8 @@ function build_filename_json($updateday,$title,$episode_title,$mc,$media_type,$i
   $name = mb_ereg_replace('\/','／',$name);
   $name = mb_ereg_replace('\*','＊',$name);
   $name = mb_ereg_replace('\!','！',$name);
+  $name = mb_ereg_replace('\"','”',$name);
+  $name = mb_ereg_replace(':','：',$name);
   return $name;
 }
 
@@ -147,38 +149,167 @@ function download_onsen_m3u8($url, $outfile){
     exec($execcmd);
 }
 
-$programinfo=get_programinfo_json($id);
-$title = $programinfo["title"];
-$program_mc="";
-    foreach($programinfo["performer_list"] as $performer ){
-          if(!empty($program_mc) ) $program_mc = $program_mc." ";
-          $program_mc = $program_mc.$performer;
-    }
-    
-foreach( $programinfo["episodes"] as $episode){
-	$updateday= date('Y.m.d', strtotime($episode["updated_on"]));
-	$episode_title=$episode["title"];
-    $media_type=$episode["media_type"];
-	$mc=$program_mc;
-    foreach($episode["episode_performers"] as $performer ){
-          if(!empty($mc) ) $mc = $mc." ";
-          $mc = $mc.$performer["name"];
-    }
-    $mediaurl="";
-    foreach($episode["episode_files"] as $episode_file ){
-    	if($episode_file["media_url"] == "ios" ){
-          $mediaurl = $episode_file["media_url"];
-        }
-        if(empty($mediaurl)) {
-          $mediaurl = $episode_file["media_url"];
-        }
-    }
-    $outfilename = build_filename_json($updateday,$title,$episode_title,$mc,$media_type,$programinfo["directory_name"]);
-    print $outfilename."\n";
-    print $mediaurl."\n";
-    download_onsen_m3u8($mediaurl,$outfilename);
-	
+function get_programlist_html( $url ){
+    $html = file_get_html_with_retry($url);
+
+if($html == false){
+    print("Onsen Top Page download Failed.\n");
+    return false;
 }
+	$html = mb_convert_encoding($html, 'HTML-ENTITIES', 'ASCII, JIS, UTF-8, EUC-JP, SJIS');
+	#mb_convert_variables("UTF-8",'auto',$html );
+	$domDocument = new DOMDocument();
+	libxml_use_internal_errors(true);
+	$domDocument->loadHTML($html);
+	libxml_clear_errors();
+	$xmlString = $domDocument->saveXML();
+
+	$xmlString = preg_replace('/^.*denkifes2019.*$/um','',$xmlString);
+	print($xmlString);
+	$xmlObject = simplexml_load_string($xmlString);
+	var_dump(libxml_get_errors());
+	#var_dump($xmlObject);
+	$array = json_decode(json_encode($xmlObject), true);
+	#var_dump($array);
+	if(empty($array) ) {
+	    print $xmlString."\n";
+	    return false;
+	}
+	$programarray=$array['body']['div']['div'][0]['div']['div'][0]['div']['div']["section"][1]["div"][1]["ul"]["li"];
+	#var_dump($programarray);
+	#die();
+	return $programarray;
+}
+
+function get_programlist_json( $url ){
+    $html = file_get_html_with_retry_json($url);
+
+	if($html == false){
+      print("Onsen Program JSON download Failed.\n");
+      die();
+	}
+	
+	// print $html;
+	
+	$program_array=json_decode($html,true);
+	//var_dump($program_array);
+	return $program_array;
+
+}
+
+
+function getidfromidname($idname){
+  $onsenjsonurl='https://app.onsen.ag/api/programs';
+  $ret = get_programlist_json($onsenjsonurl);
+  if($ret === false ) {
+    echo "Failed\n";
+    return false;
+  }
+  
+   foreach($ret as $program){
+       if( $program["directory_name"] === $idname ) {
+         return $program["id"];
+       }
+   }
+   echo $idname." not found";
+   return false;
+}
+
+function onsendl_fromid($id,$destdir) 
+{
+
+    $programinfo=get_programinfo_json($id);
+    $title = $programinfo["title"];
+    $program_mc="";
+        foreach($programinfo["performer_list"] as $performer ){
+              if(!empty($program_mc) ) $program_mc = $program_mc." ";
+              $program_mc = $program_mc.$performer;
+        }
+        
+    foreach( $programinfo["episodes"] as $episode){
+ 	$updateday= date('Y.m.d', strtotime($episode["updated_on"]));
+ 	$episode_title=$episode["title"];
+        $media_type=$episode["media_type"];
+ 	$mc=$program_mc;
+        foreach($episode["episode_performers"] as $performer ){
+              if(!empty($mc) ) $mc = $mc." ";
+              $mc = $mc.$performer["name"];
+        }
+        $mediaurl="";
+        foreach($episode["episode_files"] as $episode_file ){
+        	if($episode_file["media_url"] == "ios" ){
+              $mediaurl = $episode_file["media_url"];
+            }
+            if(empty($mediaurl)) {
+              $mediaurl = $episode_file["media_url"];
+            }
+
+            
+        }
+        $outfilename = build_filename_json($updateday,$title,$episode_title,$mc,$media_type,$programinfo["directory_name"]);
+        if($destdir) {
+            $outfilename = $destdir.$outfilename;
+        }
+        print $outfilename."\n";
+        print $mediaurl."\n";
+        if( file_exists($outfilename) ){
+            if ( filesize ($outfilename) < 1024 ) {
+                print "$outfilename is exists. but too small. Overwrite.  filesize : ".filesize ($outfilename)."\n";
+            }else {
+              print "$outfilename is exists. skip this file. filesize : ".filesize ($outfilename)."\n";
+              continue;
+            }
+        }
+
+        download_onsen_m3u8($mediaurl,$outfilename);
+ 	
+    }
+}
+
+function logwrite($msg){
+
+    $logfd = fopen('/tmp/onsendl.log', "a");
+    $logmsg = date(DATE_ATOM)." $msg\n";
+    fwrite($logfd, $logmsg);
+    fclose($logfd);
+}
+
+/***** main start ***/
+logwrite("Start Onsen Download");
+
+$idfile = false;
+$destdir = false;
+$idlist = array();
+
+$options = getopt("f:d:");
+if( $options === false) {
+}else {
+    if(array_key_exists("f", $options)) {
+        $idfile = $options['f'];
+        $idlist = read_idlist($idfile);
+    }
+    if(array_key_exists("d", $options)) {
+        $destdir = $options['d'];
+        $lastdirchar = substr($destdir,-1,1);
+        if( $lastdirchar[0] == '/' ){
+            $destdir = $destdir;
+        } else {
+            $destdir = $destdir.'/';
+        }
+    }
+}
+
+foreach ($idlist as $idname){
+    $id=getidfromidname($idname);
+    if($id === false){
+       logwrite("id not found".$idname);
+       continue;
+    }
+    onsendl_fromid($id,$destdir);
+}
+
+
+
 
 die();
 
@@ -367,13 +498,7 @@ function read_idlist($idfile){
 
 }
 
-function logwrite($msg){
 
-    $logfd = fopen('/tmp/onsendl.log', "a");
-    $logmsg = date(DATE_ATOM)." $msg\n";
-    fwrite($logfd, $logmsg);
-    fclose($logfd);
-}
 
 logwrite("Start Onsen Download");
 
